@@ -26,13 +26,12 @@ def read_estacoes_inmet(cnx):
 
         # abre o arquivo para armazenar dados geográficos
         # útil caso seja plotado algum mapa, mas caso não seja utilizado, apagar
-        df = pd.read_csv(caminho, delimiter=';', nrows=7).T
-        latitude = float(df[3].iloc[1].replace(',', '.'))
-        longitude = float(df[4].iloc[1].replace(',', '.'))
+        #df = pd.read_csv(caminho, delimiter=';', nrows=7, encoding='windows-1252').T
+        #latitude = float(df[3].iloc[1].replace(',', '.'))
+        #longitude = float(df[4].iloc[1].replace(',', '.'))
 
         cnx.execute(
-            f"insert into estacoes values ('{estacao_id}', '{localidade}', '{regiao}', '{estado}', {latitude}, " +
-            f"{longitude})")
+            f"insert into estacoes values ('{estacao_id}', '{localidade}', '{regiao}', '{estado}', {None}, {None})")
         cnx.commit()
 
 
@@ -90,7 +89,8 @@ def read_historical_data(cnx, atualizar_base=False):
         if not os.path.exists(caminho):
             continue
 
-        df = (pd.read_csv(caminho, delimiter=';', header=8, usecols=mapping.keys(), names=mapping.values())
+        df = (pd.read_csv(caminho, delimiter=';', header=8, usecols=mapping.keys(), names=mapping.values(),
+                          encoding='windows-1252')
               .assign(estacao_id=estacao_id, timestamp=lambda row: row['data'] + " " + row['hora'].str[:2] + ":00"))
 
         temp_cols = ['temperatura', 't_max', 't_min']

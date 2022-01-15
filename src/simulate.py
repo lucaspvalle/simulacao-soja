@@ -1,12 +1,12 @@
+import logging
 import pandas as pd
 from datetime import timedelta
-import logging
 from src.cronometro import cronometro
 
 
 @cronometro
 def simulate_temperatura_por_hora(cnx, rota_id, respeita_turno=True):
-    logging.info('Analisando itinerário de cada rota!')
+    logging.info('Analisando itinerario de cada rota!')
 
     dm_query = "select c.cidade_id, dm.* from dados_metereologicos dm inner join cidades c using (estacao_id)"
     transit_query = f"select origem, destino, transit_time from transit_time where rota_id = {rota_id}"
@@ -26,7 +26,7 @@ def simulate_temperatura_por_hora(cnx, rota_id, respeita_turno=True):
     saidas = [pd.to_datetime(primeiro_dia + " " + str(hora).zfill(2) + ":00") for hora in horario_de_trabalho]
 
     for horario in saidas:
-        logging.info(f'(Rota: {rota_id}) Saída: {horario}')
+        logging.info(f'(Rota: {rota_id}) Saida: {horario}')
         horario_inicial = horario
 
         origem = origem_da_rota
@@ -45,7 +45,7 @@ def simulate_temperatura_por_hora(cnx, rota_id, respeita_turno=True):
                 if horario_final.hour > 18:
                     horario_final += timedelta(hours=32 - horario_final.hour, minutes=horario_final.minute * -1)
 
-                if horario_final.hour < 8:
+                elif horario_final.hour < 8:
                     horario_final += timedelta(hours=8 - horario_final.hour, minutes=horario_final.minute * -1)
 
                 elif horario_final.hour == 12:
