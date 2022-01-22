@@ -1,7 +1,9 @@
 import time
 import logging
 
-logging.basicConfig(format="[%(asctime)s] %(message)s", datefmt="%d-%m-%y %H:%M:%S", level=logging.INFO)
+
+logging.basicConfig(filename='simulation.log', encoding='utf-8', filemode='w', format="[%(asctime)s] %(message)s",
+                    datefmt="%d-%m-%y %H:%M:%S", level=logging.INFO)
 
 
 def cronometro(funcao):
