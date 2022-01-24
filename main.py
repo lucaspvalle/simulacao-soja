@@ -1,9 +1,11 @@
 import sqlite3
-import logging
-from src.integrate import read_historical_data
+
 from src.simulate import simulate
+from src.utils import cronometro, logging
+from src.integrate import read_historical_data
 
 
+@cronometro
 def main():
     logging.info('Iniciando!')
     cnx = sqlite3.connect('data.sqlite')
@@ -15,4 +17,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    #try:
+        main()
+    # except Exception:  # noqa
+      #  logging.info(f"Erro: {Exception}!")

@@ -1,7 +1,7 @@
 import os
 import pandas as pd
-import logging
-from src.cronometro import cronometro
+
+from src.utils import cronometro, logging
 
 
 data_path = 'data'
@@ -92,7 +92,6 @@ def read_historical_data(cnx, atualizar_base=False):
         #       aplicar o mesmo valor caso seja do mesmo turno (manhã, tarde e noite)?
 
         # converte UTC para GMT-3
-        # TODO: validar funcionamento
         df['timestamp'] = pd.to_datetime(df['timestamp']) + pd.offsets.Hour(-3)
         df['ano'] = df['timestamp'].dt.year
         df['mes'] = df['timestamp'].dt.month
