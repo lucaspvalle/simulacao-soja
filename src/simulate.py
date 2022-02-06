@@ -1,15 +1,16 @@
 import pandas as pd
 from datetime import datetime, timedelta
 
-from src.utils import cronometro, logging
-from src.monte_carlo import best_fit_distribution
+# from src.utils import cronometro, logging
+from src.fuzzy import get_fuzzy_results
+from src.monte_carlo import *
 
 
 @cronometro
 def get_clima_por_hora(cnx, rota_id, respeita_turno=True):
     """
     Analisa o itinerário de cada rota para inferir o horário em que o veículo passará em cada cidade
-    Com isso, podemos cruzar com os dados metereológicos para saber as condições climáticas históricas no local
+    Com isso, podemos cruzar com os dados meteorológicos para saber as condições climáticas históricas no local
 
     :param cnx: conexão com o banco de dados local
     :param rota_id: identificador da rota de movimentação de soja (por ex: Barreiras -> Cuiabá)
@@ -84,60 +85,113 @@ def get_clima_por_hora(cnx, rota_id, respeita_turno=True):
                 )[['cidade_id', 'cidade', 'saida', 'mes', 'dia', 'hora', 'temperatura', 't_max', 't_min',
                    'umidade', 'u_max', 'u_min']]
 
-        simulate_distribuicoes(cnx, data)
+        get_distribuicoes(cnx, rota_id, data)
 
 
 @cronometro
-def calculate_distribuicoes(cnx, dataset, medida):
-    if medida == "temperatura":
-        cols = ['temperatura', 't_max', 't_min']
-    else:
-        cols = ['umidade', 'u_max', 'u_min']
-
-    # o banco de dados do INMET disponibiliza dados atuais, máximos e mínimos
-    # utilizamos ambos como ocorrências de temperaturas em determinada hora para aumentar o conjunto de dados
-    df = (pd.melt(dataset, id_vars=['saida', 'cidade_id', 'cidade', 'mes', 'dia', 'hora'], value_vars=cols,
-                  value_name='value')
-          .drop(columns=['variable'])
-          .dropna(subset=['value']))
-
-    dist_por_hora = []
-
-    for index, values in df.groupby(['saida', 'cidade', 'mes', 'dia', 'hora']):
-        cidade_id = values['cidade_id'].iloc[0]
-        cidade = values['cidade'].iloc[0]
-        saida = values['saida'].iloc[0]
-        mes = str(values['mes'].iloc[0]).zfill(2)  # convertendo mês 6 para 06 (mês 10 continua 10)
-        dia = str(values['dia'].iloc[0]).zfill(2)  # convertendo dia 9 para 09 (dia 10 continua 10)
-        hora = values['hora'].iloc[0]
-
-        logging.info(f"Avaliando {medida}: {cidade} ({dia}/{mes} {hora})")
-
-        dist_name, params = best_fit_distribution(values)
-        dist_por_hora.append((str(saida), cidade_id, mes, dia, str(hora), medida, dist_name, str(params)))
-
-    (pd.DataFrame(dist_por_hora, columns=['saida', 'cidade_id', 'mes', 'dia', 'hora', 'medida', 'dist_name', 'params'])
-     .to_sql('distribuicoes', cnx, if_exists='append', index=False))
-
-
-@cronometro
-def simulate_distribuicoes(cnx, data):
+def get_distribuicoes(cnx, rota_id, data):
     """
     Infere a distribuição de probabilidade que melhor representa as condições climáticas de cada local da rota
     em determinado horário
 
     :param cnx: conexão com o banco de dados local
+    :param rota_id: identificador da rota de movimentação de soja (por ex: Barreiras -> Cuiabá)
     :param data: conjunto de dados com a data (dia e hora) em que o veículo estará em cada cidade
     """
     saida = str(data['saida'].iloc[0])
 
-    cnx.execute(f"delete from distribuicoes where saida = '{saida}'")
+    cnx.execute(f"delete from distribuicoes where saida = '{saida}' and rota_id = {rota_id}")
     cnx.commit()
 
     for medida in ['temperatura', 'umidade']:
-        calculate_distribuicoes(cnx, data, medida)
+        if medida == "temperatura":
+            cols = ['temperatura', 't_max', 't_min']
+        else:
+            cols = ['umidade', 'u_max', 'u_min']
+
+        # o banco de dados do INMET disponibiliza dados atuais, máximos e mínimos
+        # utilizamos ambos como ocorrências de temperaturas em determinada hora para aumentar o conjunto de dados
+        df = (pd.melt(data, id_vars=['saida', 'cidade_id', 'cidade', 'mes', 'dia', 'hora'], value_vars=cols,
+                      value_name='value')
+              .drop(columns=['variable'])
+              .dropna(subset=['value']))
+
+        dist_por_hora = []
+
+        for index, values in df.groupby(['saida', 'cidade', 'mes', 'dia', 'hora']):
+            saida, cidade, mes, dia, hora = index
+
+            mes = str(mes).zfill(2)
+            dia = str(dia).zfill(2)
+            cidade_id = values['cidade_id'].iloc[0]
+
+            logging.info(f"Avaliando {medida}: {cidade} ({dia}/{mes} {hora})")
+
+            dist_name, params = best_fit_distribution(values)
+            dist_por_hora += [(rota_id, str(saida), cidade_id, mes, dia, str(hora), medida, dist_name, params)]
+
+        (pd.DataFrame(dist_por_hora,
+                      columns=['rota_id', 'saida', 'cidade_id', 'mes', 'dia', 'hora', 'medida', 'dist_name', 'params'])
+         .to_sql('distribuicoes', cnx, if_exists='append', index=False))
+
+
+@cronometro
+def simulate_por_hora(cnx, rota_id):
+    """
+    A partir das distribuições de probabilidade de condições climáticas, calculadas anteriormente
+    para os pontos esperados em que o veículo esteja durante a rota, podemos simular diversos cenários
+    por meio da geração de números aleatórios que repliquem a realidade.
+
+    :param cnx: conexão com o banco de dados local
+    :param rota_id: identificador da rota de movimentação de soja (por ex: Barreiras -> Cuiabá)
+    """
+    distribuicoes = pd.read_sql(f'select * from distribuicoes where rota_id = {rota_id}', cnx)
+    distribuicoes['params'] = distribuicoes['params'].apply(lambda row: [float(item) for item in row.split(',')])
+
+    for index, values in distribuicoes.groupby(['saida', 'cidade_id', 'mes', 'dia', 'hora']):
+        saida, cidade_id, mes, dia, hora = index
+        hora = str(hora)
+
+        simulated_df = pd.DataFrame()
+        for medida in ['temperatura', 'umidade']:
+            dist_name = values.loc[values['medida'] == medida, 'dist_name'].iloc[0]
+            params = values.loc[values['medida'] == medida, 'params'].iloc[0]
+
+            simulated = DIST_x_FUNC.get(
+                dist_name,
+                lambda *_: logging.info(f"Falha no método de transformação de {dist_name}")  # tratamento de erro
+            )(*params)                                                                       # chama a função
+
+            simulated_df[medida] = simulated
+
+        # após a iteração, o conjunto 'simulated_df' está populado com dados simulados de temperatura e umidade
+        # com isso, podemos relacionar os dados para mensurar o impacto no transporte
+        score = get_fuzzy_results(simulated_df)
+
+        cnx.execute(f'insert into resultados values ({rota_id}, {saida}, {cidade_id}, {mes}, {dia}, {hora}, {score})')
+        cnx.commit()
 
 
 @cronometro
 def simulate(cnx, rota_id, respeita_turno):
+    """
+    Função principal responsável por simular as condições climáticas em todos os pontos da rota desejada,
+    de forma a encontrar o melhor horário de saída em virtude da preservação da qualidade de sementes
+
+    :param cnx: conexão com o banco de dados local
+    :param rota_id: identificador da rota de movimentação de soja (por ex: Barreiras -> Cuiabá)
+    :param respeita_turno: restringe a viagem de veículos apenas a horários comerciais
+    :return: melhor horário de saída para a rota no dia simulado
+    """
+    # Pré-processamento:
     get_clima_por_hora(cnx, rota_id, respeita_turno)
+
+    # Processamento:
+    simulate_por_hora(cnx, rota_id)
+
+    # Pós-processamento:
+    # retornamos apenas o horário de saída com MAIOR score (lembrando que quanto maior, melhor)
+    saida = cnx.execute(f'select saida from resultados where rota_id = {rota_id} group by saida '
+                        f'having max(sum(score))').fetchone()
+
+    logging.info(f'O melhor horário de saída para a rota {rota_id} é {saida}!')

@@ -17,7 +17,7 @@ def main():
 
 
 if __name__ == "__main__":
-    #try:
+    try:
         main()
-    # except Exception:  # noqa
-      #  logging.info(f"Erro: {Exception}!")
+    except Exception as Erro:  # noqa
+        logging.info("Erro:" + str(Erro))
