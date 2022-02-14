@@ -6,7 +6,7 @@ from skfuzzy import control as ctrl
 from src.utils import cronometro
 
 
-@cronometro
+# @cronometro
 def get_fuzzy_results(simulated_df):
     """
     Implementa sistema de lógica fuzzy (nebulosa) para analisar de forma subjetiva a relação entre
@@ -23,6 +23,7 @@ def get_fuzzy_results(simulated_df):
     simulated_df.loc[simulated_df['umidade'] > 100, 'umidade'] = 100
     simulated_df.loc[simulated_df['umidade'] < 0, 'umidade'] = 0
 
+    # FIXME: analisar esse intervalo
     # temperatura, para este caso, está com intervalo fixo entre -10 a 50 ºC
     simulated_df.loc[simulated_df['temperatura'] > 50, 'temperatura'] = 50
     simulated_df.loc[simulated_df['temperatura'] < -10, 'temperatura'] = -10
@@ -91,5 +92,4 @@ def get_fuzzy_results(simulated_df):
     simulador.compute()
     simulated_df['score'] = simulador.output['Score']
 
-    # FIXME: como utilizar o resultado? Retornar um único valor?
-    return simulated_df['score'].mean()
+    return simulated_df

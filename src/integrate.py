@@ -89,7 +89,6 @@ def read_historical_data(cnx, atualizar_base=False):
             df[coluna] = pd.to_numeric(df[coluna].fillna("").str.replace(',', '.', regex=False), errors='coerce')
 
         # TODO: tratar missing values de temperatura e umidade...
-        #       aplicar o mesmo valor caso seja do mesmo turno (manhã, tarde e noite)?
 
         # converte UTC para GMT-3
         df['timestamp'] = pd.to_datetime(df['timestamp']) + pd.offsets.Hour(-3)

@@ -33,11 +33,11 @@ def cronometro(func):
     """
     def wrapper(*args, **kwargs):
         inicio = time.time()
-        try:
-            func(*args, **kwargs)
-        except Exception as Erro:  # noqa
-            logging.info("Erro: " + str(Erro))
-            pass
+        # try:
+        func(*args, **kwargs)
+        # except Exception as Erro:  # noqa
+        #     logging.info("Erro: " + str(Erro))
+        #     pass
         fim = time.time()
 
         logging.info(f"'{func.__name__}' ({(fim - inicio):.4f} segundos)")

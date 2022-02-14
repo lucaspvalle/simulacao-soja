@@ -1,9 +1,10 @@
 import pandas as pd
 from datetime import datetime, timedelta
 
-# from src.utils import cronometro, logging
+from src.utils import cronometro, logging
+
 from src.fuzzy import get_fuzzy_results
-from src.monte_carlo import *
+from src.monte_carlo import DIST_x_FUNC, best_fit_distribution
 
 
 @cronometro
@@ -148,6 +149,8 @@ def simulate_por_hora(cnx, rota_id):
     distribuicoes = pd.read_sql(f'select * from distribuicoes where rota_id = {rota_id}', cnx)
     distribuicoes['params'] = distribuicoes['params'].apply(lambda row: [float(item) for item in row.split(',')])
 
+    cnx.execute(f'delete from resultados where rota_id = {rota_id}')
+
     for index, values in distribuicoes.groupby(['saida', 'cidade_id', 'mes', 'dia', 'hora']):
         saida, cidade_id, mes, dia, hora = index
         hora = str(hora)
@@ -164,12 +167,19 @@ def simulate_por_hora(cnx, rota_id):
 
             simulated_df[medida] = simulated
 
+        mes = str(mes).zfill(2)
+        dia = str(dia).zfill(2)
+
+        logging.info(f"Análise fuzzy: {saida} - {dia}/{mes} {hora}")
+
         # após a iteração, o conjunto 'simulated_df' está populado com dados simulados de temperatura e umidade
         # com isso, podemos relacionar os dados para mensurar o impacto no transporte
-        score = get_fuzzy_results(simulated_df)
+        resultado = (get_fuzzy_results(simulated_df)
+                     .assign(rota_id=rota_id, saida=saida, cidade_id=cidade_id, mes=mes, dia=dia, hora=hora))
 
-        cnx.execute(f'insert into resultados values ({rota_id}, {saida}, {cidade_id}, {mes}, {dia}, {hora}, {score})')
-        cnx.commit()
+        resultado['simulacao'] = resultado.index + 1
+
+        resultado.to_sql('resultados', cnx, if_exists='append', index=False)
 
 
 @cronometro
@@ -191,7 +201,10 @@ def simulate(cnx, rota_id, respeita_turno):
 
     # Pós-processamento:
     # retornamos apenas o horário de saída com MAIOR score (lembrando que quanto maior, melhor)
-    saida = cnx.execute(f'select saida from resultados where rota_id = {rota_id} group by saida '
-                        f'having max(sum(score))').fetchone()
-
-    logging.info(f'O melhor horário de saída para a rota {rota_id} é {saida}!')
+    # saida = cnx.execute(f'select saida from resultados where rota_id = {rota_id} group by saida '
+    #                     f'order by sum(score) desc limit 1').fetchone()[0]
+    #
+    # horario = saida[-8:]
+    # dia = saida[:-9]
+    #
+    # logging.info(f'O melhor horário de saída para a rota {rota_id} no dia {dia} é {horario}!')
