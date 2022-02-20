@@ -3,7 +3,7 @@ import numpy as np
 import skfuzzy as fuzz
 from skfuzzy import control as ctrl
 
-from src.utils import cronometro
+# from src.utils import cronometro
 
 
 # @cronometro
@@ -11,8 +11,6 @@ def get_fuzzy_results(simulated_df):
     """
     Implementa sistema de lógica fuzzy (nebulosa) para analisar de forma subjetiva a relação entre
     temperatura e umidade.
-
-    TODO: buscar as relações ambientais mais desejadas para a qualidade de sementes
 
     :param simulated_df: conjunto de dados com as combinações de temperatura e umidade simuladas para o índice
                          composto por horário de saída, cidade, mês, dia e hora
@@ -23,13 +21,12 @@ def get_fuzzy_results(simulated_df):
     simulated_df.loc[simulated_df['umidade'] > 100, 'umidade'] = 100
     simulated_df.loc[simulated_df['umidade'] < 0, 'umidade'] = 0
 
-    # FIXME: analisar esse intervalo
-    # temperatura, para este caso, está com intervalo fixo entre -10 a 50 ºC
-    simulated_df.loc[simulated_df['temperatura'] > 50, 'temperatura'] = 50
-    simulated_df.loc[simulated_df['temperatura'] < -10, 'temperatura'] = -10
+    # # temperatura, para este caso, está com intervalo fixo entre 0 a 40 ºC
+    simulated_df.loc[simulated_df['temperatura'] > 40, 'temperatura'] = 40
+    simulated_df.loc[simulated_df['temperatura'] < 0, 'temperatura'] = 0
 
     data_for_temp = (
-        # np.arange(-10, 51, 1)                            # denso
+        # np.arange(0, 40, 1)                            # denso
         simulated_df['temperatura'].sort_values().values   # esparso
     )
     data_for_umid = (
@@ -46,18 +43,19 @@ def get_fuzzy_results(simulated_df):
 
     # Declarando funções de pertinência
     # Temperatura:
-    temperatura['Baixa'] = fuzz.trapmf(temperatura.universe, [-10, -10, 5, 20])
-    temperatura['Media'] = fuzz.trimf(temperatura.universe, [15, 25, 30])
-    temperatura['Alta'] = fuzz.trapmf(temperatura.universe, [25, 35, 50, 50])
+    temperatura['Baixa'] = fuzz.trapmf(temperatura.universe, [0, 0, 10, 25])
+    temperatura['Media'] = fuzz.trimf(temperatura.universe, [20, 25, 30])
+    temperatura['Alta'] = fuzz.trapmf(temperatura.universe, [25, 35, 40, 40])
 
     # Umidade:
-    umidade['Baixa'] = fuzz.trapmf(umidade.universe, [0, 0, 10, 20])
-    umidade['Media'] = fuzz.trimf(umidade.universe, [15, 30, 50])
-    umidade['Alta'] = fuzz.trapmf(umidade.universe, [45, 60, 100, 100])
+    umidade['Baixa'] = fuzz.trapmf(umidade.universe, [0, 0, 30, 50])
+    umidade['Media'] = fuzz.trimf(umidade.universe, [40, 60, 80])
+    umidade['Alta'] = fuzz.trapmf(umidade.universe, [70, 90, 100, 100])
 
     # Score:
-    score['Bom'] = fuzz.gaussmf(score.universe, mean=10, sigma=3.2)
-    score['Ruim'] = fuzz.gaussmf(score.universe, mean=0, sigma=3.2)
+    score['Bom'] = fuzz.gaussmf(score.universe, mean=10, sigma=2)
+    score['Medio'] = fuzz.trimf(score.universe, [4, 5, 6])
+    score['Ruim'] = fuzz.gaussmf(score.universe, mean=0, sigma=2)
 
     # Visualização das funções de pertinência
     # temperatura.view()
@@ -69,15 +67,15 @@ def get_fuzzy_results(simulated_df):
         # baixas temperaturas:
         temperatura['Baixa'] & umidade['Baixa']: score['Bom'],
         temperatura['Baixa'] & umidade['Media']: score['Bom'],
-        temperatura['Baixa'] & umidade['Alta']: score['Bom'],
+        temperatura['Baixa'] & umidade['Alta']: score['Ruim'],
 
         # médias temperaturas:
         temperatura['Media'] & umidade['Baixa']: score['Bom'],
-        temperatura['Media'] & umidade['Media']: score['Ruim'],
+        temperatura['Media'] & umidade['Media']: score['Medio'],
         temperatura['Media'] & umidade['Alta']: score['Ruim'],
 
         # altas temperaturas:
-        temperatura['Alta'] & umidade['Baixa']: score['Bom'],
+        temperatura['Alta'] & umidade['Baixa']: score['Medio'],
         temperatura['Alta'] & umidade['Media']: score['Ruim'],
         temperatura['Alta'] & umidade['Alta']: score['Ruim']
     }
@@ -90,6 +88,6 @@ def get_fuzzy_results(simulated_df):
     simulador.input['Umidade'] = simulated_df['umidade'].values
 
     simulador.compute()
-    simulated_df['score'] = simulador.output['Score']
+    # simulated_df['score'] = simulador.output['Score']
 
-    return simulated_df
+    return simulador.output['Score']
