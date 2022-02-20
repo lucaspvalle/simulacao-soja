@@ -1,4 +1,5 @@
 import pandas as pd
+import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 
 from src.utils import cronometro, logging
@@ -8,14 +9,13 @@ from src.monte_carlo import DIST_x_FUNC, best_fit_distribution
 
 
 @cronometro
-def get_clima_por_hora(cnx, rota_id, respeita_turno=True):
+def get_clima_por_hora(cnx, rota_id):
     """
     Analisa o itinerário de cada rota para inferir o horário em que o veículo passará em cada cidade
     Com isso, podemos cruzar com os dados meteorológicos para saber as condições climáticas históricas no local
 
     :param cnx: conexão com o banco de dados local
     :param rota_id: identificador da rota de movimentação de soja (por ex: Barreiras -> Cuiabá)
-    :param respeita_turno: restringe a viagem de veículos apenas a horários comerciais
     """
     logging.info('Analisando itinerário de cada rota!')
 
@@ -34,10 +34,8 @@ def get_clima_por_hora(cnx, rota_id, respeita_turno=True):
 
     dm = pd.read_sql(dm_query, cnx, parse_dates=['timestamp'])
 
-    # inicializa possíveis horários de saída em horários comerciais (exclui horário de almoço):
-    # TODO: ver com caminhoneiros que horários são esses
-    horario_de_trabalho = [hora for hora in range(0, 24, 1) if (8 <= hora <= 18 and hora != 12) or not respeita_turno]
-    saidas = [primeiro_dia + timedelta(hours=hora) for hora in horario_de_trabalho]
+    # inicializa possíveis horários de saída em horários comerciais:
+    saidas = [primeiro_dia + timedelta(hours=hora) for hora in range(6, 18, 1)]
 
     for horario in saidas:
         logging.info(f'(Rota: {rota_id}) Saida: {horario}')
@@ -45,6 +43,8 @@ def get_clima_por_hora(cnx, rota_id, respeita_turno=True):
 
         origem = origem_rota
         destino = None
+
+        horas_de_viagem, dias_de_viagem = 0, 0
 
         while destino != destino_rota:
             subset = itinerario.query(f'origem == {origem}')
@@ -54,16 +54,20 @@ def get_clima_por_hora(cnx, rota_id, respeita_turno=True):
 
             horario_final = horario_inicial + timedelta(minutes=int(transito))
 
-            # tratamento: se não for horário comercial, joga para o primeiro horário de trabalho disponível
-            if horario_final.hour not in horario_de_trabalho:
-                if horario_final.hour > 18:
-                    horario_final += timedelta(hours=32 - horario_final.hour, minutes=horario_final.minute * -1)
+            horas_de_viagem += transito
+            dias_de_viagem += transito
 
-                elif horario_final.hour < 8:
-                    horario_final += timedelta(hours=8 - horario_final.hour, minutes=horario_final.minute * -1)
+            # caminhoneiros são obrigados legalmente a parar 30 minutos a cada 5h30 de viagem
+            if horas_de_viagem >= (5 * 60 + 30):
+                horario_final += timedelta(minutes=30)
+                horas_de_viagem = 0
+                dias_de_viagem += 30
 
-                elif horario_final.hour == 12:
-                    horario_final += timedelta(minutes=60 - horario_final.minute)
+            # caminhoneiros são obrigados legalmente a parar por 8 horas ininterruptas depois de 24h de viagem
+            if dias_de_viagem >= (24 * 60):
+                horario_final += timedelta(hours=8)
+                horas_de_viagem = 0
+                dias_de_viagem = 0
 
             itinerario.loc[itinerario['origem'] == origem, 'inicio'] = horario_inicial
             itinerario.loc[itinerario['origem'] == origem, 'fim'] = horario_final
@@ -75,6 +79,9 @@ def get_clima_por_hora(cnx, rota_id, respeita_turno=True):
         itinerario['fim'] = pd.to_datetime(itinerario['fim'])
 
         dm['hora'] = dm['timestamp'].dt.time
+
+        # (itinerario.assign(saida=horario)[['rota_id', 'saida', 'origem', 'destino', 'inicio', 'fim']]
+        #  .to_sql('itinerario', cnx, if_exists='append', index=False))
 
         data = (itinerario
                 .merge(dm, left_on=['origem'], right_on=['cidade_id'])
@@ -101,7 +108,7 @@ def get_distribuicoes(cnx, rota_id, data):
     """
     saida = str(data['saida'].iloc[0])
 
-    cnx.execute(f"delete from distribuicoes where saida = '{saida}' and rota_id = {rota_id}")
+    cnx.execute(f"delete from distribuicoes where rota_id = {rota_id} and saida = '{saida}'")
     cnx.commit()
 
     for medida in ['temperatura', 'umidade']:
@@ -128,7 +135,7 @@ def get_distribuicoes(cnx, rota_id, data):
 
             logging.info(f"Avaliando {medida}: {cidade} ({dia}/{mes} {hora})")
 
-            dist_name, params = best_fit_distribution(values)
+            dist_name, params = best_fit_distribution(values['value'])
             dist_por_hora += [(rota_id, str(saida), cidade_id, mes, dia, str(hora), medida, dist_name, params)]
 
         (pd.DataFrame(dist_por_hora,
@@ -150,61 +157,58 @@ def simulate_por_hora(cnx, rota_id):
     distribuicoes['params'] = distribuicoes['params'].apply(lambda row: [float(item) for item in row.split(',')])
 
     cnx.execute(f'delete from resultados where rota_id = {rota_id}')
+    cnx.execute(f'delete from simulacoes where rota_id = {rota_id}')
+    cnx.commit()
 
     for index, values in distribuicoes.groupby(['saida', 'cidade_id', 'mes', 'dia', 'hora']):
         saida, cidade_id, mes, dia, hora = index
+
         hora = str(hora)
+        mes = str(mes).zfill(2)
+        dia = str(dia).zfill(2)
+
+        logging.info(f"Ajustando distribuição: {saida} - {dia}/{mes} {hora}")
 
         simulated_df = pd.DataFrame()
         for medida in ['temperatura', 'umidade']:
             dist_name = values.loc[values['medida'] == medida, 'dist_name'].iloc[0]
             params = values.loc[values['medida'] == medida, 'params'].iloc[0]
 
-            simulated = DIST_x_FUNC.get(
-                dist_name,
-                lambda *_: logging.info(f"Falha no método de transformação de {dist_name}")  # tratamento de erro
-            )(*params)                                                                       # chama a função
+            simulated_df[medida] = \
+                DIST_x_FUNC.get(
+                    dist_name,
+                    lambda *_: logging.info(f"Falha no método de transformação de {dist_name}")  # tratamento de erro
+                )(*params)                                                                       # chama a função
 
-            simulated_df[medida] = simulated
+        simulated_df['saida'] = saida
 
-        mes = str(mes).zfill(2)
-        dia = str(dia).zfill(2)
-
-        logging.info(f"Análise fuzzy: {saida} - {dia}/{mes} {hora}")
-
-        # após a iteração, o conjunto 'simulated_df' está populado com dados simulados de temperatura e umidade
-        # com isso, podemos relacionar os dados para mensurar o impacto no transporte
-        resultado = (get_fuzzy_results(simulated_df)
-                     .assign(rota_id=rota_id, saida=saida, cidade_id=cidade_id, mes=mes, dia=dia, hora=hora))
-
-        resultado['simulacao'] = resultado.index + 1
-
-        resultado.to_sql('resultados', cnx, if_exists='append', index=False)
+        # exportando resultados agregados apenas em nível de rota, horário de saída e cenário (1..1000)
+        (simulated_df.assign(rota_id=rota_id, cenario=simulated_df.index + 1)  # noqa
+        [['rota_id', 'saida', 'cenario', 'temperatura', 'umidade']]
+        .to_sql('simulacoes', cnx, if_exists='append', index=False))
 
 
 @cronometro
-def simulate(cnx, rota_id, respeita_turno):
+# def get_results(cnx, rota_id):
+#     simulated_df = pd.read_sql(f'select * from simulacoes where rota_id = {rota_id}', cnx)
+#
+#     simulated_df['score'] = get_fuzzy_results(simulated_df)
+#     agg_simulated_df = simulated_df.groupby(['saida', 'cenario']).agg({'score': 'mean'})
+
+
+@cronometro
+def simulate(cnx, rota_id):
     """
     Função principal responsável por simular as condições climáticas em todos os pontos da rota desejada,
     de forma a encontrar o melhor horário de saída em virtude da preservação da qualidade de sementes
 
     :param cnx: conexão com o banco de dados local
     :param rota_id: identificador da rota de movimentação de soja (por ex: Barreiras -> Cuiabá)
-    :param respeita_turno: restringe a viagem de veículos apenas a horários comerciais
     :return: melhor horário de saída para a rota no dia simulado
     """
     # Pré-processamento:
-    get_clima_por_hora(cnx, rota_id, respeita_turno)
+    get_clima_por_hora(cnx, rota_id)
 
     # Processamento:
     simulate_por_hora(cnx, rota_id)
-
-    # Pós-processamento:
-    # retornamos apenas o horário de saída com MAIOR score (lembrando que quanto maior, melhor)
-    # saida = cnx.execute(f'select saida from resultados where rota_id = {rota_id} group by saida '
-    #                     f'order by sum(score) desc limit 1').fetchone()[0]
-    #
-    # horario = saida[-8:]
-    # dia = saida[:-9]
-    #
-    # logging.info(f'O melhor horário de saída para a rota {rota_id} no dia {dia} é {horario}!')
+    # get_results(cnx, rota_id)

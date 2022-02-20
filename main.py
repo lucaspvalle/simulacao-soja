@@ -10,8 +10,8 @@ def main():
     logging.info('Iniciando!')
     cnx = sqlite3.connect('data.sqlite')
 
-    read_historical_data(cnx, atualizar_base=False)
-    simulate(cnx, rota_id=1, respeita_turno=True)
+    # read_historical_data(cnx, atualizar_base=False)
+    simulate(cnx, rota_id=1)
 
     logging.info('Fim!')
 
