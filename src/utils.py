@@ -2,24 +2,20 @@ import time
 import logging
 
 
-logging.basicConfig(encoding='utf-8',  format="[%(asctime)s] %(message)s", datefmt="%d-%m-%y %H:%M:%S",
-                    handlers=[logging.FileHandler("simulation.log", mode='w', delay=False), logging.StreamHandler()],
-                    level=logging.INFO)
+FORMATTER = logging.Formatter("[%(asctime)s] %(message)s", datefmt="%d/%m/%Y %H:%M:%S")
+LOG_FILE = "simulation.log"
 
-# FORMATTER = logging.Formatter("[%(asctime)s] %(message)s")
-# LOG_FILE = "simulation.log"
-#
-# console_handler = logging.StreamHandler()
-# console_handler.setFormatter(FORMATTER)
-#
-# file_handler = logging.FileHandler(LOG_FILE, mode='w', delay=False)
-# file_handler.setFormatter(FORMATTER)
-#
-# logger = logging.getLogger(LOG_FILE)
-# logger.setLevel(logging.DEBUG)
-#
-# logger.addHandler(console_handler)
-# logger.addHandler(file_handler)
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+ch = logging.StreamHandler()
+fh = logging.FileHandler(LOG_FILE, mode='w', delay=False)
+
+ch.setFormatter(FORMATTER)
+fh.setFormatter(FORMATTER)
+
+logger.addHandler(ch)
+logger.addHandler(fh)
 
 
 def cronometro(func):

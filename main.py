@@ -1,23 +1,23 @@
 import sqlite3
 
-from src.simulate import simulate
-from src.utils import cronometro, logging
-from src.integrate import read_historical_data
+from src.utils import cronometro, logger
+from src.simulate import Simulador
+from src.integrate import Integrador
 
 
 @cronometro
 def main():
-    logging.info('Iniciando!')
+    logger.info('Iniciando!')
     cnx = sqlite3.connect('data.sqlite')
 
-    # read_historical_data(cnx, atualizar_base=False)
-    simulate(cnx, rota_id=1)
+    Integrador(cnx, atualizar_base=False)
+    Simulador(cnx)
 
-    logging.info('Fim!')
+    logger.info('Fim!')
 
 
 if __name__ == "__main__":
-    # try:
-    main()
-    # except Exception as Erro:  # noqa
-    #     logging.info("Erro:" + str(Erro))
+    try:
+        main()
+    except Exception as Erro:  # noqa
+        logger.info("Erro:" + str(Erro))

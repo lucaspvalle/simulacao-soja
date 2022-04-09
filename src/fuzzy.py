@@ -3,10 +3,9 @@ import numpy as np
 import skfuzzy as fuzz
 from skfuzzy import control as ctrl
 
-# from src.utils import cronometro
+from src.utils import logger
 
 
-# @cronometro
 def get_fuzzy_results(simulated_df):
     """
     Implementa sistema de lógica fuzzy (nebulosa) para analisar de forma subjetiva a relação entre
@@ -14,19 +13,13 @@ def get_fuzzy_results(simulated_df):
 
     :param simulated_df: conjunto de dados com as combinações de temperatura e umidade simuladas para o índice
                          composto por horário de saída, cidade, mês, dia e hora
-    :return: score calculado com base no impacto das condições climáticas sobre a rota (quanto maior, melhor)
+    :return:             score calculado com base no impacto das condições climáticas sobre a rota
+                         (quanto maior, melhor)
     """
-    # Consistências de dados:
-    # umidade deve ter intervalo entre 0 a 100 (%)
-    simulated_df.loc[simulated_df['umidade'] > 100, 'umidade'] = 100
-    simulated_df.loc[simulated_df['umidade'] < 0, 'umidade'] = 0
-
-    # # temperatura, para este caso, está com intervalo fixo entre 0 a 40 ºC
-    simulated_df.loc[simulated_df['temperatura'] > 40, 'temperatura'] = 40
-    simulated_df.loc[simulated_df['temperatura'] < 0, 'temperatura'] = 0
+    logger.info('Implementando análise fuzzy!')
 
     data_for_temp = (
-        # np.arange(0, 40, 1)                            # denso
+        # np.arange(0, 40, 1)                              # denso
         simulated_df['temperatura'].sort_values().values   # esparso
     )
     data_for_umid = (
