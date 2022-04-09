@@ -13,6 +13,7 @@ def main():
     Integrador(cnx, atualizar_base=False)
     Simulador(cnx)
 
+    cnx.close()
     logger.info('Fim!')
 
 
