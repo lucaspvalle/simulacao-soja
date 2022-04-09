@@ -22,20 +22,14 @@ def cronometro(func):
     """
     Função de suporte para a contagem de tempo gasta em cada parte do sistema.
 
-    FIXME: não deveria quebrar o código...
-
     :param func: função a ser medida
     :return: empacotamento do cronometro
     """
     def wrapper(*args, **kwargs):
         inicio = time.time()
-        # try:
         func(*args, **kwargs)
-        # except Exception as Erro:  # noqa
-        #     logging.info("Erro: " + str(Erro))
-        #     pass
         fim = time.time()
 
-        logging.info(f"'{func.__name__}' ({(fim - inicio):.4f} segundos)")
+        logger.info(f"'{func.__name__}' ({(fim - inicio):.4f} segundos)")
 
     return wrapper
