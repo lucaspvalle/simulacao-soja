@@ -11,8 +11,8 @@ from src.monte_carlo import DIST_x_FUNC, best_fit_distribution
 class Simulador:
     def __init__(self, cnx):
         """
-        Função principal responsável por simular as condições climáticas em todos os pontos da rota desejada,
-        de forma a encontrar o melhor horário de saída em virtude da preservação da qualidade de sementes
+        Função principal responsável por simular as condições climáticas em todos os pontos da rota desejada
+        para encontrar o melhor horário de saída em virtude da preservação da qualidade de sementes
 
         :param cnx: conexão com o banco de dados local
         :return: melhor horário de saída para a rota no dia simulado
@@ -66,7 +66,7 @@ class Simulador:
         dm['hora'] = dm['timestamp'].dt.time
 
         # inicializa possíveis horários de saída em horários comerciais:
-        saidas = [primeiro_dia + timedelta(hours=hora) for hora in range(6, 18, 1)]
+        saidas = [primeiro_dia + timedelta(hours=hora) for hora in range(6, 19, 1)]
 
         for horario in saidas:
             logger.info(f'(Rota: {self.rota_id}) Saida: {horario}')
@@ -94,7 +94,7 @@ class Simulador:
                     horas_de_viagem = 0
                     dias_de_viagem += 30
 
-                # caminhoneiros são obrigados legalmente a parar por 8 horas ininterruptas depois de 24h de viagem
+                # caminhoneiros são obrigados legalmente a parar por 8 horas ininterruptas após 24h de viagem
                 if dias_de_viagem >= (24 * 60):
                     horario_final += timedelta(hours=8)
                     horas_de_viagem = 0
@@ -105,10 +105,12 @@ class Simulador:
 
                 horario_inicial = horario_final
                 origem = destino
+            # endwhile
 
             itinerario['inicio'] = pd.to_datetime(itinerario['inicio'])
             itinerario['fim'] = pd.to_datetime(itinerario['fim'])
 
+            # puxa todos os dados históricos de horários no intervalo em que o veículo passa pela localidade
             data = (itinerario
                     .merge(dm, left_on=['origem'], right_on=['cidade_id'])
                     # não podemos filtrar pelo timestamp porque queremos dados de anos passados
@@ -120,6 +122,7 @@ class Simulador:
                        'umidade', 'u_max', 'u_min']]
 
             self.get_distribuicoes(data)
+        # endfor
 
     @cronometro
     def get_distribuicoes(self, data):
