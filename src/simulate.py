@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from src.utils import cronometro, logger
 
-from src.plot import get_boxplot
+from src.plot import get_boxplot, get_duracao_de_medidas
 from src.fuzzy import get_fuzzy_results
 from src.monte_carlo import DIST_x_FUNC, best_fit_distribution
 
@@ -110,16 +110,34 @@ class Simulador:
             itinerario['inicio'] = pd.to_datetime(itinerario['inicio'])
             itinerario['fim'] = pd.to_datetime(itinerario['fim'])
 
+            itinerario['duracao'] = ((itinerario['fim'] - itinerario['inicio']).dt.seconds / 60).astype(int)
+
+            # primeiro_horario_de_viagem = itinerario['inicio'].min()
+
+            hora_maxima = int(divmod((itinerario['fim'].max() - horario).total_seconds(), 3600)[0])
+            guia_de_horarios = (pd.DataFrame(columns=['inicio', 'fim'])
+                                # somamos 2 para finalizar com o horário "acima" do último
+                                # por exemplo: se o trajeto termina às 14h, queremos que o guia vá até às 15h
+                                # para que quando o merge seja feito com dm, os dados de 14h sejam inclusos
+                                # porque hora do dado meteorológico <= hora de passagem
+                                # lembrando que range usa intervalos [,), ou seja: descarta o último item
+                                .assign(fim=[horario + timedelta(hours=x) for x in range(1, hora_maxima + 2)]))
+
+            guia_de_horarios['inicio'] = guia_de_horarios.apply(lambda x: x.fim - timedelta(hours=1), axis=1)
+            guia_de_horarios = (guia_de_horarios
+                                .merge(itinerario, how='cross', suffixes=('', '_itinerario'))
+                                .query('inicio >= inicio_itinerario & fim <= fim_itinerario'))
+
             # puxa todos os dados históricos de horários no intervalo em que o veículo passa pela localidade
-            data = (itinerario
+            data = (guia_de_horarios
                     .merge(dm, left_on=['origem'], right_on=['cidade_id'])
                     # não podemos filtrar pelo timestamp porque queremos dados de anos passados
                     .query('hora >= inicio.dt.time and hora <= fim.dt.time '
                            'and mes >= inicio.dt.month and mes <= fim.dt.month '
                            'and dia >= inicio.dt.day and dia <= fim.dt.day')
                     .assign(saida=horario)
-                    )[['cidade_id', 'cidade', 'saida', 'mes', 'dia', 'hora', 'temperatura', 't_max', 't_min',
-                       'umidade', 'u_max', 'u_min']]
+                    )[['cidade_id', 'saida', 'hora', 'duracao', 'temperatura', 't_max', 't_min', 'umidade', 'u_max',
+                       'u_min']]
 
             self.get_distribuicoes(data)
         # endfor
@@ -145,28 +163,24 @@ class Simulador:
 
             # o banco de dados do INMET disponibiliza dados atuais, máximos e mínimos
             # utilizamos ambos como ocorrências de temperaturas em determinada hora para aumentar o conjunto de dados
-            df = (pd.melt(data, id_vars=['saida', 'cidade_id', 'cidade', 'mes', 'dia', 'hora'], value_vars=cols,
+            df = (pd.melt(data, id_vars=['saida', 'cidade_id', 'hora', 'duracao'], value_vars=cols,
                           value_name='value')
                   .drop(columns=['variable'])
                   .dropna(subset=['value']))
 
             dist_por_hora = []
 
-            for index, values in df.groupby(['saida', 'cidade', 'mes', 'dia', 'hora']):
-                saida, cidade, mes, dia, hora = index
+            for index, values in df.groupby(['saida', 'cidade_id', 'hora']):
+                saida, cidade_id, hora = index
+                duracao = values['duracao'].iloc[0]
 
-                mes = str(mes).zfill(2)
-                dia = str(dia).zfill(2)
-                cidade_id = values['cidade_id'].iloc[0]
-
-                logger.info(f"Avaliando {medida}: {cidade} ({dia}/{mes} {hora})")
+                logger.info(f"Avaliando {medida} para Cidade ID: {cidade_id} (Saída: {saida} -> Hora: {hora})")
 
                 dist_name, params = best_fit_distribution(values['value'])
-                dist_por_hora += [(self.rota_id, str(saida), cidade_id, mes, dia, str(hora), medida, dist_name, params)]
+                dist_por_hora += [(self.rota_id, str(saida), cidade_id, str(hora), duracao, medida, dist_name, params)]
 
             (pd.DataFrame(dist_por_hora,
-                          columns=['rota_id', 'saida', 'cidade_id', 'mes', 'dia', 'hora', 'medida', 'dist_name',
-                                   'params'])
+                          columns=['rota_id', 'saida', 'cidade_id', 'hora', 'duracao', 'medida', 'dist_name', 'params'])
              .to_sql('distribuicoes', self.cnx, if_exists='append', index=False))
 
     @cronometro
@@ -183,14 +197,11 @@ class Simulador:
         self.cnx.execute(f'delete from simulacoes where rota_id = {self.rota_id}')
         self.cnx.commit()
 
-        for index, values in distribuicoes.groupby(['saida', 'cidade_id', 'mes', 'dia', 'hora']):
-            saida, cidade_id, mes, dia, hora = index
-
+        for index, values in distribuicoes.groupby(['saida', 'cidade_id', 'hora', 'duracao']):
+            saida, cidade_id, hora, duracao = index
             hora = str(hora)
-            mes = str(mes).zfill(2)
-            dia = str(dia).zfill(2)
 
-            logger.info(f"Ajustando distribuição: {saida} - {dia}/{mes} {hora}")
+            logger.info(f"Ajustando distribuição para Cidade ID: {cidade_id} ({saida} - {hora})")
 
             simulated_df = pd.DataFrame()
             for medida in ['temperatura', 'umidade']:
@@ -206,8 +217,9 @@ class Simulador:
             simulated_df['saida'] = saida
 
             # exportando resultados agregados apenas em nível de rota, horário de saída e cenário (1..1000)
-            (simulated_df.assign(rota_id=self.rota_id, cenario=simulated_df.index + 1)  # noqa
-            [['rota_id', 'saida', 'cenario', 'temperatura', 'umidade']]
+            (simulated_df.assign(rota_id=self.rota_id, cidade_id=cidade_id, hora=hora, duracao=duracao,
+                                 cenario=simulated_df.index + 1)  # noqa
+            [['rota_id', 'saida', 'hora', 'cidade_id', 'duracao', 'cenario', 'temperatura', 'umidade']]
             .to_sql('simulacoes', self.cnx, if_exists='append', index=False))
 
     @cronometro
@@ -231,3 +243,4 @@ class Simulador:
         simulated_df['score'] = get_fuzzy_results(simulated_df[['temperatura', 'umidade']])
 
         get_boxplot(simulated_df)  # analisa a dispersão de resultados entre cenários para um horário de saída
+        get_duracao_de_medidas(simulated_df)

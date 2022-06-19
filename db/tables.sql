@@ -84,9 +84,8 @@ CREATE TABLE IF NOT EXISTS distribuicoes (
     saida     DATETIME     NOT NULL,
     cidade_id INTEGER      REFERENCES cidades (cidade_id)
                            NOT NULL,
-    mes       INTEGER      NOT NULL,
-    dia       INTEGER      NOT NULL,
     hora      TIME         NOT NULL,
+    duracao   INTEGER      NOT NULL,
     medida    VARCHAR (20) NOT NULL,
     dist_name VARCHAR (20),
     params    VARCHAR (50),
@@ -103,7 +102,9 @@ CREATE TABLE IF NOT EXISTS distribuicoes (
 
 CREATE TABLE IF NOT EXISTS simulacoes (
     rota_id     INTEGER  REFERENCES rotas (rota_id),
-    saida       DATETIME,
+    saida       DATETIME NOT NULL,
+    cidade_id   INTEGER  NOT NULL,
+    duracao,    INTEGER,
     cenario     INTEGER,
     temperatura NUMERIC,
     umidade     NUMERIC

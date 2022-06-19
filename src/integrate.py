@@ -32,7 +32,7 @@ class Integrador:
 
             self.read_estacoes_inmet()
 
-        self.read_historical_data()
+            self.read_historical_data()
 
     def create_db_entities(self, script):
         for query in script.split(';'):
